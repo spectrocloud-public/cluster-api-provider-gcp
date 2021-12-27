@@ -18,7 +18,9 @@ package networks
 
 import (
 	"context"
+	"strings"
 
+	"github.com/GoogleCloudPlatform/k8s-cloud-provider/pkg/cloud/filter"
 	"github.com/GoogleCloudPlatform/k8s-cloud-provider/pkg/cloud/meta"
 	"google.golang.org/api/compute/v1"
 
@@ -27,6 +29,10 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-gcp/cloud/gcperrors"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+const (
+	k8sNodeRouteTag = "k8s-node-route"
 )
 
 // Reconcile reconcile cluster network components.
@@ -85,6 +91,27 @@ func (s *Service) Delete(ctx context.Context) error {
 	if router != nil && router.Description == infrav1.ClusterTagKey(s.scope.Name()) {
 		if err := s.routers.Delete(ctx, routerKey); err != nil && !gcperrors.IsNotFound(err) {
 			return err
+		}
+	}
+
+	// Delete routes associated with the network. In v1.12.0 the target relocated
+	// subnet deletion into the dedicated `subnets` package (which already deletes
+	// Get-first), so only the route-delete fix is re-expressed here.
+	fl := filter.Regexp("description", k8sNodeRouteTag)
+	routeList, err := s.routes.List(ctx, fl)
+	if err != nil {
+		log.Error(err, "failed to list routes for the cluster")
+		return err
+	}
+
+	for _, route := range routeList {
+		if strings.HasSuffix(route.Network, s.scope.NetworkName()) {
+			log.V(2).Info("Deleting route ", "route:", route.Name)
+			err := s.routes.Delete(ctx, meta.GlobalKey(route.Name))
+			if err != nil {
+				log.Error(err, "Error deleting a route", "name", route.Name)
+				return err
+			}
 		}
 	}
 
