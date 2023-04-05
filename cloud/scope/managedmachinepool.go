@@ -152,8 +152,13 @@ func (s *ManagedMachinePoolScope) InstanceGroupManagersClient() *compute.Instanc
 }
 
 // NodePoolVersion returns the k8s version of the node pool.
+// Fork intent (kept per Gate-1 human decision, Regression Watch): strip leading
+// "v" so callers receive the GCP-SDK-compatible form. Adapted to T's v1beta2
+// signature — Version is now a bare string (not *string). T's caller also runs
+// ConvertFromSdkNodeVersion which strips "v" itself, so this TrimPrefix may be
+// a harmless no-op; kept per reviewer guidance until product confirms.
 func (s *ManagedMachinePoolScope) NodePoolVersion() string {
-	return s.MachinePool.Spec.Template.Spec.Version
+	return strings.TrimPrefix(s.MachinePool.Spec.Template.Spec.Version, "v")
 }
 
 // NodePoolResourceLabels returns the resource labels of the node pool.
