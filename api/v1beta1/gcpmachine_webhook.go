@@ -17,16 +17,16 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
-
-	"k8s.io/utils/strings/slices"
 
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/strings/slices"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -39,16 +39,23 @@ var _ = logf.Log.WithName("gcpmachine-resource")
 func (m *GCPMachine) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(m).
+		WithDefaulter(m). // registers webhook.CustomDefaulter
+		WithValidator(m). // registers webhook.CustomValidator
 		Complete()
 }
 
 // +kubebuilder:webhook:verbs=create;update,path=/validate-infrastructure-cluster-x-k8s-io-v1beta1-gcpmachine,mutating=false,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=gcpmachines,versions=v1beta1,name=validation.gcpmachine.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
 // +kubebuilder:webhook:verbs=create;update,path=/mutate-infrastructure-cluster-x-k8s-io-v1beta1-gcpmachine,mutating=true,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=gcpmachines,versions=v1beta1,name=default.gcpmachine.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
 
-var _ webhook.Validator = &GCPMachine{}
+var _ webhook.CustomDefaulter = &GCPMachine{}
+var _ webhook.CustomValidator = &GCPMachine{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
-func (m *GCPMachine) ValidateCreate() (admission.Warnings, error) {
+func (m *GCPMachine) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	m, ok := obj.(*GCPMachine)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPMachine, got %T", obj)
+	}
 	clusterlog.Info("validate create", "name", m.Name)
 
 	if err := validateConfidentialCompute(m.Spec); err != nil {
@@ -58,7 +65,11 @@ func (m *GCPMachine) ValidateCreate() (admission.Warnings, error) {
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (m *GCPMachine) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+func (m *GCPMachine) ValidateUpdate(ctx context.Context, old runtime.Object, new runtime.Object) (warnings admission.Warnings, err error) {
+	m, ok := new.(*GCPMachine)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPMachine, got %T", new)
+	}
 	newGCPMachine, err := runtime.DefaultUnstructuredConverter.ToUnstructured(m)
 	if err != nil {
 		return nil, apierrors.NewInvalid(GroupVersion.WithKind("GCPMachine").GroupKind(), m.Name, field.ErrorList{
@@ -97,15 +108,20 @@ func (m *GCPMachine) ValidateUpdate(old runtime.Object) (admission.Warnings, err
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
-func (m *GCPMachine) ValidateDelete() (admission.Warnings, error) {
+func (m *GCPMachine) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	clusterlog.Info("validate delete", "name", m.Name)
 
 	return nil, nil
 }
 
 // Default implements webhookutil.defaulter so a webhook will be registered for the type.
-func (m *GCPMachine) Default() {
+func (m *GCPMachine) Default(ctx context.Context, obj runtime.Object) error {
+	m, ok := obj.(*GCPMachine)
+	if !ok {
+		return fmt.Errorf("expected *GCPMachine, got %T", obj)
+	}
 	clusterlog.Info("default", "name", m.Name)
+	return nil
 }
 
 func validateConfidentialCompute(spec GCPMachineSpec) error {
