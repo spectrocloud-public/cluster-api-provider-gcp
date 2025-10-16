@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 
@@ -34,30 +35,45 @@ var gcpclustertemplatelog = logf.Log.WithName("gcpclustertemplate-resource")
 func (r *GCPClusterTemplate) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
+		WithDefaulter(r). // registers webhook.CustomDefaulter
+		WithValidator(r). // registers webhook.CustomValidator
 		Complete()
 }
 
 //+kubebuilder:webhook:verbs=create;update,path=/mutate-infrastructure-cluster-x-k8s-io-v1beta1-gcpclustertemplate,mutating=true,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=gcpclustertemplates,versions=v1beta1,name=default.gcpclustertemplate.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
 //+kubebuilder:webhook:verbs=create;update,path=/validate-infrastructure-cluster-x-k8s-io-v1beta1-gcpclustertemplate,mutating=false,failurePolicy=fail,matchPolicy=Equivalent,groups=infrastructure.cluster.x-k8s.io,resources=gcpclustertemplates,versions=v1beta1,name=validation.gcpclustertemplate.infrastructure.cluster.x-k8s.io,sideEffects=None,admissionReviewVersions=v1beta1
 
-var _ webhook.Defaulter = &GCPClusterTemplate{}
+var _ webhook.CustomDefaulter = &GCPClusterTemplate{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type.
-func (r *GCPClusterTemplate) Default() {
+func (r *GCPClusterTemplate) Default(ctx context.Context, obj runtime.Object) error {
+	r, ok := obj.(*GCPClusterTemplate)
+	if !ok {
+		return fmt.Errorf("expected *GCPClusterTemplate, got %T", obj)
+	}
 	gcpclustertemplatelog.Info("default", "name", r.Name)
+	return nil
 }
 
-var _ webhook.Validator = &GCPClusterTemplate{}
+var _ webhook.CustomValidator = &GCPClusterTemplate{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPClusterTemplate) ValidateCreate() (admission.Warnings, error) {
+func (r *GCPClusterTemplate) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := obj.(*GCPClusterTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPClusterTemplate, got %T", obj)
+	}
 	gcpclustertemplatelog.Info("validate create", "name", r.Name)
 
 	return nil, nil
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPClusterTemplate) ValidateUpdate(oldRaw runtime.Object) (admission.Warnings, error) {
+func (r *GCPClusterTemplate) ValidateUpdate(ctx context.Context, oldRaw runtime.Object, newRaw runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := newRaw.(*GCPClusterTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPClusterTemplate, got %T", newRaw)
+	}
 	old, ok := oldRaw.(*GCPClusterTemplate)
 	if !ok {
 		return nil, apierrors.NewBadRequest(fmt.Sprintf("expected an GCPClusterTemplate but got a %T", oldRaw))
@@ -70,7 +86,7 @@ func (r *GCPClusterTemplate) ValidateUpdate(oldRaw runtime.Object) (admission.Wa
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPClusterTemplate) ValidateDelete() (admission.Warnings, error) {
+func (r *GCPClusterTemplate) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	gcpclustertemplatelog.Info("validate delete", "name", r.Name)
 	return nil, nil
 }

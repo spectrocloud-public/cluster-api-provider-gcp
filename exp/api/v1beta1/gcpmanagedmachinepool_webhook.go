@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/google/go-cmp/cmp"
@@ -39,21 +40,28 @@ var gcpmanagedmachinepoollog = logf.Log.WithName("gcpmanagedmachinepool-resource
 func (r *GCPManagedMachinePool) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
+		WithDefaulter(r). // registers webhook.CustomDefaulter
+		WithValidator(r). // registers webhook.CustomValidator
 		Complete()
 }
 
 //+kubebuilder:webhook:path=/mutate-infrastructure-cluster-x-k8s-io-v1beta1-gcpmanagedmachinepool,mutating=true,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=gcpmanagedmachinepools,verbs=create;update,versions=v1beta1,name=mgcpmanagedmachinepool.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &GCPManagedMachinePool{}
+var _ webhook.CustomDefaulter = &GCPManagedMachinePool{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type.
-func (r *GCPManagedMachinePool) Default() {
+func (r *GCPManagedMachinePool) Default(ctx context.Context, obj runtime.Object) error {
+	r, ok := obj.(*GCPManagedMachinePool)
+	if !ok {
+		return fmt.Errorf("expected *GCPManagedMachinePool, got %T", obj)
+	}
 	gcpmanagedmachinepoollog.Info("default", "name", r.Name)
+	return nil
 }
 
 //+kubebuilder:webhook:path=/validate-infrastructure-cluster-x-k8s-io-v1beta1-gcpmanagedmachinepool,mutating=false,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=gcpmanagedmachinepools,verbs=create;update,versions=v1beta1,name=vgcpmanagedmachinepool.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &GCPManagedMachinePool{}
+var _ webhook.CustomValidator = &GCPManagedMachinePool{}
 
 // validateSpec validates that the GCPManagedMachinePool spec is valid.
 func (r *GCPManagedMachinePool) validateSpec() field.ErrorList {
@@ -170,7 +178,11 @@ func (r *GCPManagedMachinePool) validateImmutable(old *GCPManagedMachinePool) fi
 }
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPManagedMachinePool) ValidateCreate() (admission.Warnings, error) {
+func (r *GCPManagedMachinePool) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := obj.(*GCPManagedMachinePool)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPManagedMachinePool, got %T", obj)
+	}
 	gcpmanagedmachinepoollog.Info("validate create", "name", r.Name)
 	var allErrs field.ErrorList
 
@@ -186,7 +198,11 @@ func (r *GCPManagedMachinePool) ValidateCreate() (admission.Warnings, error) {
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPManagedMachinePool) ValidateUpdate(oldRaw runtime.Object) (admission.Warnings, error) {
+func (r *GCPManagedMachinePool) ValidateUpdate(ctx context.Context, oldRaw runtime.Object, newRaw runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := newRaw.(*GCPManagedMachinePool)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPManagedMachinePool, got %T", newRaw)
+	}
 	gcpmanagedmachinepoollog.Info("validate update", "name", r.Name)
 	var allErrs field.ErrorList
 	old := oldRaw.(*GCPManagedMachinePool)
@@ -207,7 +223,7 @@ func (r *GCPManagedMachinePool) ValidateUpdate(oldRaw runtime.Object) (admission
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPManagedMachinePool) ValidateDelete() (admission.Warnings, error) {
+func (r *GCPManagedMachinePool) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	gcpmanagedmachinepoollog.Info("validate delete", "name", r.Name)
 
 	return nil, nil
