@@ -17,6 +17,8 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
+	"fmt"
 	"reflect"
 
 	"github.com/pkg/errors"
@@ -38,20 +40,31 @@ var _ = logf.Log.WithName("gcpmachinetemplate-resource")
 func (r *GCPMachineTemplate) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
+		WithDefaulter(r). // registers webhook.CustomDefaulter
+		WithValidator(r). // registers webhook.CustomValidator
 		Complete()
 }
 
-var _ webhook.Validator = &GCPMachineTemplate{}
+var _ webhook.CustomDefaulter = &GCPMachineTemplate{}
+var _ webhook.CustomValidator = &GCPMachineTemplate{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPMachineTemplate) ValidateCreate() (admission.Warnings, error) {
+func (r *GCPMachineTemplate) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := obj.(*GCPMachineTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPMachineTemplate, got %T", obj)
+	}
 	clusterlog.Info("validate create", "name", r.Name)
 
 	return nil, validateConfidentialCompute(r.Spec.Template.Spec)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPMachineTemplate) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+func (r *GCPMachineTemplate) ValidateUpdate(ctx context.Context, old runtime.Object, new runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := new.(*GCPMachineTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPMachineTemplate, got %T", new)
+	}
 	newGCPMachineTemplate, err := runtime.DefaultUnstructuredConverter.ToUnstructured(r)
 	if err != nil {
 		return nil, apierrors.NewInvalid(GroupVersion.WithKind("GCPMachineTemplate").GroupKind(), r.Name, field.ErrorList{
@@ -99,13 +112,18 @@ func (r *GCPMachineTemplate) ValidateUpdate(old runtime.Object) (admission.Warni
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPMachineTemplate) ValidateDelete() (admission.Warnings, error) {
+func (r *GCPMachineTemplate) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	clusterlog.Info("validate delete", "name", r.Name)
 
 	return nil, nil
 }
 
 // Default implements webhookutil.defaulter so a webhook will be registered for the type.
-func (r *GCPMachineTemplate) Default() {
+func (r *GCPMachineTemplate) Default(ctx context.Context, obj runtime.Object) error {
+	r, ok := obj.(*GCPMachineTemplate)
+	if !ok {
+		return fmt.Errorf("expected *GCPMachineTemplate, got %T", obj)
+	}
 	clusterlog.Info("default", "name", r.Name)
+	return nil
 }

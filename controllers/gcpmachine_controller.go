@@ -60,7 +60,7 @@ func (r *GCPMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options).
 		For(&infrav1.GCPMachine{}).
-		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(ctrl.LoggerFrom(ctx), r.WatchFilterValue)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(mgr.GetScheme(), ctrl.LoggerFrom(ctx), r.WatchFilterValue)).
 		Watches(
 			&clusterv1.Machine{},
 			handler.EnqueueRequestsFromMapFunc(util.MachineToInfrastructureMapFunc(infrav1.GroupVersion.WithKind("GCPMachine"))),
@@ -83,7 +83,7 @@ func (r *GCPMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 	if err := c.Watch(
 		source.Kind[client.Object](mgr.GetCache(), &clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToObjectFunc),
-			predicates.ClusterUnpausedAndInfrastructureReady(log),
+			predicates.ClusterPausedTransitionsOrInfrastructureReady(mgr.GetScheme(), log),
 		)); err != nil {
 		return errors.Wrap(err, "failed adding a watch for ready clusters")
 	}

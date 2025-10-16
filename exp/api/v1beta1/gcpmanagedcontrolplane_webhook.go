@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -45,36 +46,47 @@ var gcpmanagedcontrolplanelog = logf.Log.WithName("gcpmanagedcontrolplane-resour
 func (r *GCPManagedControlPlane) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
+		WithDefaulter(r). // registers webhook.CustomDefaulter
+		WithValidator(r). // registers webhook.CustomValidator
 		Complete()
 }
 
 //+kubebuilder:webhook:path=/mutate-infrastructure-cluster-x-k8s-io-v1beta1-gcpmanagedcontrolplane,mutating=true,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=gcpmanagedcontrolplanes,verbs=create;update,versions=v1beta1,name=mgcpmanagedcontrolplane.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &GCPManagedControlPlane{}
+var _ webhook.CustomDefaulter = &GCPManagedControlPlane{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type.
-func (r *GCPManagedControlPlane) Default() {
+func (r *GCPManagedControlPlane) Default(ctx context.Context, obj runtime.Object) error {
+	r, ok := obj.(*GCPManagedControlPlane)
+	if !ok {
+		return fmt.Errorf("expected *GCPManagedControlPlane, got %T", obj)
+	}
 	gcpmanagedcontrolplanelog.Info("default", "name", r.Name)
 
 	if r.Spec.ClusterName == "" {
 		gcpmanagedcontrolplanelog.Info("ClusterName is empty, generating name")
 		name, err := generateGKEName(r.Name, r.Namespace, maxClusterNameLength)
 		if err != nil {
-			gcpmanagedcontrolplanelog.Error(err, "failed to create GKE cluster name")
-			return
+			return errors.Wrap(err, "failed to create GKE cluster name")
 		}
 
 		gcpmanagedcontrolplanelog.Info("defaulting GKE cluster name", "cluster-name", name)
 		r.Spec.ClusterName = name
 	}
+
+	return nil
 }
 
 //+kubebuilder:webhook:path=/validate-infrastructure-cluster-x-k8s-io-v1beta1-gcpmanagedcontrolplane,mutating=false,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=gcpmanagedcontrolplanes,verbs=create;update,versions=v1beta1,name=vgcpmanagedcontrolplane.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &GCPManagedControlPlane{}
+var _ webhook.CustomValidator = &GCPManagedControlPlane{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPManagedControlPlane) ValidateCreate() (admission.Warnings, error) {
+func (r *GCPManagedControlPlane) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := obj.(*GCPManagedControlPlane)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPManagedControlPlane, got %T", obj)
+	}
 	gcpmanagedcontrolplanelog.Info("validate create", "name", r.Name)
 	var allErrs field.ErrorList
 
@@ -97,7 +109,11 @@ func (r *GCPManagedControlPlane) ValidateCreate() (admission.Warnings, error) {
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPManagedControlPlane) ValidateUpdate(oldRaw runtime.Object) (admission.Warnings, error) {
+func (r *GCPManagedControlPlane) ValidateUpdate(ctx context.Context, oldRaw runtime.Object, newRaw runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := newRaw.(*GCPManagedControlPlane)
+	if !ok {
+		return nil, fmt.Errorf("expected *GCPManagedControlPlane, got %T", newRaw)
+	}
 	gcpmanagedcontrolplanelog.Info("validate update", "name", r.Name)
 	var allErrs field.ErrorList
 	old := oldRaw.(*GCPManagedControlPlane)
@@ -138,7 +154,7 @@ func (r *GCPManagedControlPlane) ValidateUpdate(oldRaw runtime.Object) (admissio
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
-func (r *GCPManagedControlPlane) ValidateDelete() (admission.Warnings, error) {
+func (r *GCPManagedControlPlane) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	gcpmanagedcontrolplanelog.Info("validate delete", "name", r.Name)
 
 	return nil, nil
