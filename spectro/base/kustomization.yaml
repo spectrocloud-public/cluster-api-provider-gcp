@@ -10,6 +10,7 @@ resources:
   - ../../config/default/credentials.yaml
 
 bases:
+  - ../../config/rbac
   - ../../config/manager
 
 patchesStrategicMerge:
