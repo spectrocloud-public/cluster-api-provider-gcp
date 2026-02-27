@@ -59,3 +59,5 @@ junit.*.xml
 /tilt.d
 tilt-settings.json
 tilt_config.json
+
+vendor/
