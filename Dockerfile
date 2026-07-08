@@ -19,6 +19,11 @@ FROM --platform=$TARGETPLATFORM us-docker.pkg.dev/palette-images/build-base-imag
 # Run this with docker build --build_arg $(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
 ENV GOPROXY=$goproxy
+# go.mod pins toolchain go1.26.4 (stdlib CVE remediation) but the palette build-base
+# golang:1.26-alpine ships go 1.26.0 with GOTOOLCHAIN=local. Allow toolchain fetch until a
+# >=1.26.4 build-base exists; release CI can override with --build-arg GOTOOLCHAIN=local.
+ARG GOTOOLCHAIN=auto
+ENV GOTOOLCHAIN=${GOTOOLCHAIN}
 
 # FIPS
 ARG CRYPTO_LIB
