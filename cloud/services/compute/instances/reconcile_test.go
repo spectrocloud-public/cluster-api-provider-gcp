@@ -35,7 +35,8 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-gcp/cloud/scope"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -71,8 +72,8 @@ var fakeMachine = &clusterv1.Machine{
 		Bootstrap: clusterv1.Bootstrap{
 			DataSecretName: ptr.To[string]("my-cluster-bootstrap"),
 		},
-		FailureDomain: ptr.To[string]("us-central1-c"),
-		Version:       ptr.To[string]("v1.19.11"),
+		FailureDomain: "us-central1-c",
+		Version:       "v1.19.11",
 	},
 }
 
@@ -85,7 +86,7 @@ var fakeMachineWithOutFailureDomain = &clusterv1.Machine{
 		Bootstrap: clusterv1.Bootstrap{
 			DataSecretName: ptr.To[string]("my-cluster-bootstrap"),
 		},
-		Version: ptr.To[string]("v1.19.11"),
+		Version: "v1.19.11",
 	},
 }
 
@@ -99,10 +100,10 @@ var fakeGCPClusterWithOutFailureDomain = &infrav1.GCPCluster{
 		Region:  "us-central1",
 	},
 	Status: infrav1.GCPClusterStatus{
-		FailureDomains: clusterv1.FailureDomains{
-			"us-central1-a": clusterv1.FailureDomainSpec{ControlPlane: true},
-			"us-central1-b": clusterv1.FailureDomainSpec{ControlPlane: true},
-			"us-central1-c": clusterv1.FailureDomainSpec{ControlPlane: true},
+		FailureDomains: clusterv1beta1.FailureDomains{
+			"us-central1-a": clusterv1beta1.FailureDomainSpec{ControlPlane: true},
+			"us-central1-b": clusterv1beta1.FailureDomainSpec{ControlPlane: true},
+			"us-central1-c": clusterv1beta1.FailureDomainSpec{ControlPlane: true},
 		},
 	},
 }
@@ -628,6 +629,82 @@ func TestService_createOrGetInstance(t *testing.T) {
 				ConfidentialInstanceConfig: &compute.ConfidentialInstanceConfig{
 					EnableConfidentialCompute: true,
 					ConfidentialInstanceType:  "SEV_SNP",
+				},
+				Scheduling: &compute.Scheduling{
+					OnHostMaintenance: strings.ToUpper(string(infrav1.HostMaintenancePolicyTerminate)),
+				},
+				ServiceAccounts: []*compute.ServiceAccount{
+					{
+						Email:  "default",
+						Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+					},
+				},
+				Tags: &compute.Tags{
+					Items: []string{
+						"my-cluster-node",
+						"my-cluster",
+					},
+				},
+				Zone: "us-central1-c",
+			},
+		},
+		{
+			name: "instance does not exist (should create instance) with confidential compute enabled and TDX confidential instance type specified",
+			scope: func() Scope {
+				machineScope.GCPMachine = getFakeGCPMachine()
+				hostMaintenancePolicyTerminate := infrav1.HostMaintenancePolicyTerminate
+				machineScope.GCPMachine.Spec.OnHostMaintenance = &hostMaintenancePolicyTerminate
+				confidentialInstTypeTDX := infrav1.ConfidentialComputePolicyTDX
+				machineScope.GCPMachine.Spec.ConfidentialCompute = &confidentialInstTypeTDX
+				return machineScope
+			},
+			mockInstance: &cloud.MockInstances{
+				ProjectRouter: &cloud.SingleProjectRouter{ID: "proj-id"},
+				Objects:       map[meta.Key]*cloud.MockInstancesObj{},
+			},
+			want: &compute.Instance{
+				Name:         "my-machine",
+				CanIpForward: true,
+				Disks: []*compute.AttachedDisk{
+					{
+						AutoDelete: true,
+						Boot:       true,
+						InitializeParams: &compute.AttachedDiskInitializeParams{
+							DiskType:            "zones/us-central1-c/diskTypes/pd-standard",
+							SourceImage:         "projects/my-proj/global/images/family/capi-ubuntu-1804-k8s-v1-19",
+							ResourceManagerTags: map[string]string{},
+							Labels: map[string]string{
+								"foo": "bar",
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"capg-role":               "node",
+					"capg-cluster-my-cluster": "owned",
+					"foo":                     "bar",
+				},
+				MachineType: "zones/us-central1-c/machineTypes",
+				Metadata: &compute.Metadata{
+					Items: []*compute.MetadataItems{
+						{
+							Key:   "user-data",
+							Value: ptr.To[string]("Zm9vCg=="),
+						},
+					},
+				},
+				NetworkInterfaces: []*compute.NetworkInterface{
+					{
+						Network: "projects/my-proj/global/networks/default",
+					},
+				},
+				Params: &compute.InstanceParams{
+					ResourceManagerTags: map[string]string{},
+				},
+				SelfLink: "https://www.googleapis.com/compute/v1/projects/proj-id/zones/us-central1-c/instances/my-machine",
+				ConfidentialInstanceConfig: &compute.ConfidentialInstanceConfig{
+					EnableConfidentialCompute: true,
+					ConfidentialInstanceType:  "TDX",
 				},
 				Scheduling: &compute.Scheduling{
 					OnHostMaintenance: strings.ToUpper(string(infrav1.HostMaintenancePolicyTerminate)),

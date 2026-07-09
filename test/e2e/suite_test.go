@@ -140,6 +140,8 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	Expect(configPath).To(BeAnExistingFile(), "Invalid test suite argument. e2e.config should be an existing file.")
 	Expect(os.MkdirAll(artifactFolder, 0o755)).To(Succeed(), "Invalid test suite argument. Can't create e2e.artifacts-folder %q", artifactFolder)
 
+	setupSSHKeyEnv()
+
 	By("Initializing a runtime.Scheme with all the GVK relevant for this test")
 	scheme := initScheme()
 
@@ -174,7 +176,7 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	kubeconfigPath := parts[3]
 
 	e2eConfig = loadE2EConfig(configPath)
-	bootstrapClusterProxy = framework.NewClusterProxy("bootstrap", kubeconfigPath, initScheme())
+	bootstrapClusterProxy = framework.NewClusterProxy("bootstrap", kubeconfigPath, initScheme(), framework.WithMachineLogCollector(GCPLogCollector{}))
 })
 
 // Using a SynchronizedAfterSuite for controlling how to delete resources shared across ParallelNodes (~ginkgo threads).
@@ -215,19 +217,16 @@ func createClusterctlLocalRepository(config *clusterctl.E2EConfig, repositoryFol
 
 	// Ensuring a CNI file is defined in the config and register a FileTransformation to inject the referenced file as in place of the CNI_RESOURCES envSubst variable.
 	Expect(config.Variables).To(HaveKey(capi_e2e.CNIPath), "Missing %s variable in the config", capi_e2e.CNIPath)
-	cniPath := config.GetVariable(capi_e2e.CNIPath)
+	cniPath := config.MustGetVariable(capi_e2e.CNIPath)
 	Expect(cniPath).To(BeAnExistingFile(), "The %s variable should resolve to an existing file", capi_e2e.CNIPath)
 	createRepositoryInput.RegisterClusterResourceSetConfigMapTransformation(cniPath, capi_e2e.CNIResources)
 
-	// TODO: remove this when we run tests with ccm for < 1.28. in k8s 1.29+ it is required to use a ccm
-	if useCIArtifacts {
-		Expect(e2eConfig.Variables).To(HaveKey(CCMPath))
-		// Ensuring a CCM file is defined in the config and register a FileTransformation to inject the referenced file as in place of the CCM_RESOURCES envSubst variable.
-		Expect(config.Variables).To(HaveKey(CCMPath), "Missing %s variable in the config", CCMPath)
-		ccmPath := config.GetVariable(CCMPath)
-		Expect(ccmPath).To(BeAnExistingFile(), "The %s variable should resolve to an existing file", CCMPath)
-		createRepositoryInput.RegisterClusterResourceSetConfigMapTransformation(ccmPath, CCMResources)
-	}
+	Expect(e2eConfig.Variables).To(HaveKey(CCMPath))
+	// Ensuring a CCM file is defined in the config and register a FileTransformation to inject the referenced file as in place of the CCM_RESOURCES envSubst variable.
+	Expect(config.Variables).To(HaveKey(CCMPath), "Missing %s variable in the config", CCMPath)
+	ccmPath := config.MustGetVariable(CCMPath)
+	Expect(ccmPath).To(BeAnExistingFile(), "The %s variable should resolve to an existing file", CCMPath)
+	createRepositoryInput.RegisterClusterResourceSetConfigMapTransformation(ccmPath, CCMResources)
 
 	clusterctlConfig := clusterctl.CreateRepository(context.TODO(), createRepositoryInput)
 	Expect(clusterctlConfig).To(BeAnExistingFile(), "The clusterctl config file does not exists in the local repository %s", repositoryFolder)
@@ -243,7 +242,7 @@ func setupBootstrapCluster(config *clusterctl.E2EConfig, scheme *runtime.Scheme,
 			Name:               config.ManagementClusterName,
 			RequiresDockerSock: config.HasDockerProvider(),
 			Images:             config.Images,
-			KubernetesVersion:  config.GetVariable(KubernetesVersionManagement),
+			KubernetesVersion:  config.MustGetVariable(KubernetesVersionManagement),
 		})
 		Expect(clusterProvider).ToNot(BeNil(), "Failed to create a bootstrap cluster")
 
@@ -251,7 +250,7 @@ func setupBootstrapCluster(config *clusterctl.E2EConfig, scheme *runtime.Scheme,
 		Expect(kubeconfigPath).To(BeAnExistingFile(), "Failed to get the kubeconfig file for the bootstrap cluster")
 	}
 
-	clusterProxy := framework.NewClusterProxy("bootstrap", kubeconfigPath, scheme)
+	clusterProxy := framework.NewClusterProxy("bootstrap", kubeconfigPath, scheme, framework.WithMachineLogCollector(GCPLogCollector{}))
 	Expect(clusterProxy).ToNot(BeNil(), "Failed to get a bootstrap cluster proxy")
 
 	return clusterProvider, clusterProxy
@@ -273,4 +272,26 @@ func tearDown(bootstrapClusterProvider bootstrap.ClusterProvider, bootstrapClust
 	if bootstrapClusterProvider != nil {
 		bootstrapClusterProvider.Dispose(context.TODO())
 	}
+}
+
+// setupSSHKeyEnv reads the SSH public key injected by the test-infra preset-k8s-ssh
+// (https://github.com/kubernetes/test-infra/blob/master/config/prow/cluster/ssh-key-secret/)
+// and sets GCP_SSH_KEY for clusterctl template substitution. The preset mounts the
+// ssh-key-secret and exposes GCE_SSH_PUBLIC_KEY_FILE / GCE_SSH_PRIVATE_KEY_FILE env vars.
+func setupSSHKeyEnv() {
+	pubKeyPath, ok := os.LookupEnv("GCE_SSH_PUBLIC_KEY_FILE")
+	if !ok || pubKeyPath == "" {
+		klog.Warning("GCE_SSH_PUBLIC_KEY_FILE not set — SSH key will not be injected into VM metadata")
+		return
+	}
+
+	pubKeyBytes, err := os.ReadFile(pubKeyPath) //nolint:gosec
+	if err != nil {
+		klog.Warningf("Failed to read SSH public key from %s: %v", pubKeyPath, err)
+		return
+	}
+
+	sshKey := fmt.Sprintf("capi:%s", strings.TrimSpace(string(pubKeyBytes)))
+	os.Setenv("GCP_SSH_KEY", sshKey)
+	klog.Infof("Set GCP_SSH_KEY for VM metadata injection (key from %s)", pubKeyPath)
 }

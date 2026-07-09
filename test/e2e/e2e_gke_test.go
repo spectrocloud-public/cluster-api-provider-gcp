@@ -70,14 +70,15 @@ var _ = Describe("GKE workload cluster creation", func() {
 
 	AfterEach(func() {
 		cleanInput := cleanupInput{
-			SpecName:        specName,
-			Cluster:         result.Cluster,
-			ClusterProxy:    bootstrapClusterProxy,
-			Namespace:       namespace,
-			CancelWatches:   cancelWatches,
-			IntervalsGetter: e2eConfig.GetIntervals,
-			SkipCleanup:     skipCleanup,
-			ArtifactFolder:  artifactFolder,
+			SpecName:             specName,
+			Cluster:              result.Cluster,
+			ClusterProxy:         bootstrapClusterProxy,
+			ClusterctlConfigPath: clusterctlConfigPath,
+			Namespace:            namespace,
+			CancelWatches:        cancelWatches,
+			IntervalsGetter:      e2eConfig.GetIntervals,
+			SkipCleanup:          skipCleanup,
+			ArtifactFolder:       artifactFolder,
 		}
 
 		dumpSpecResourcesAndCleanup(ctx, cleanInput)
@@ -91,6 +92,10 @@ var _ = Describe("GKE workload cluster creation", func() {
 			Expect(ok).To(BeTrue(), "must have min pool size set via the GKE_MACHINE_POOL_MIN variable")
 			maxPoolSize, ok := e2eConfig.Variables["GKE_MACHINE_POOL_MAX"]
 			Expect(ok).To(BeTrue(), "must have max pool size set via the GKE_MACHINE_POOL_MAX variable")
+			minCriticalAddonsOnlyPoolSize, ok := e2eConfig.Variables["GKE_MACHINE_POOL_MIN_CRITICAL_ADDONS_ONLY"]
+			Expect(ok).To(BeTrue(), "must have min critical addons only pool size set via the GKE_MACHINE_POOL_MIN_CRITICAL_ADDONS_ONLY variable")
+			maxCriticalAddonsOnlyPoolSize, ok := e2eConfig.Variables["GKE_MACHINE_POOL_MAX_CRITICAL_ADDONS_ONLY"]
+			Expect(ok).To(BeTrue(), "must have max critical addons only pool size set via the GKE_MACHINE_POOL_MAX_CRITICAL_ADDONS_ONLY variable")
 
 			ApplyManagedClusterTemplateAndWait(ctx, ApplyManagedClusterTemplateAndWaitInput{
 				ClusterProxy: bootstrapClusterProxy,
@@ -102,12 +107,14 @@ var _ = Describe("GKE workload cluster creation", func() {
 					Flavor:                   "ci-gke",
 					Namespace:                namespace.Name,
 					ClusterName:              clusterName,
-					KubernetesVersion:        e2eConfig.GetVariable(KubernetesVersion),
+					KubernetesVersion:        e2eConfig.MustGetVariable(KubernetesVersion),
 					ControlPlaneMachineCount: ptr.To[int64](1),
 					WorkerMachineCount:       ptr.To[int64](3),
 					ClusterctlVariables: map[string]string{
-						"GKE_MACHINE_POOL_MIN": minPoolSize,
-						"GKE_MACHINE_POOL_MAX": maxPoolSize,
+						"GKE_MACHINE_POOL_MIN":                      minPoolSize,
+						"GKE_MACHINE_POOL_MAX":                      maxPoolSize,
+						"GKE_MACHINE_POOL_MIN_CRITICAL_ADDONS_ONLY": minCriticalAddonsOnlyPoolSize,
+						"GKE_MACHINE_POOL_MAX_CRITICAL_ADDONS_ONLY": maxCriticalAddonsOnlyPoolSize,
 					},
 				},
 				WaitForClusterIntervals:      e2eConfig.GetIntervals(specName, "wait-cluster"),
@@ -149,7 +156,7 @@ var _ = Describe("GKE workload cluster creation", func() {
 					Flavor:                   "ci-gke-autopilot",
 					Namespace:                namespace.Name,
 					ClusterName:              clusterName,
-					KubernetesVersion:        e2eConfig.GetVariable(KubernetesVersion),
+					KubernetesVersion:        e2eConfig.MustGetVariable(KubernetesVersion),
 					ControlPlaneMachineCount: ptr.To[int64](1),
 					WorkerMachineCount:       ptr.To[int64](0),
 				},
@@ -174,13 +181,38 @@ var _ = Describe("GKE workload cluster creation", func() {
 					Flavor:                   "ci-gke-custom-subnet",
 					Namespace:                namespace.Name,
 					ClusterName:              clusterName,
-					KubernetesVersion:        e2eConfig.GetVariable(KubernetesVersion),
+					KubernetesVersion:        e2eConfig.MustGetVariable(KubernetesVersion),
 					ControlPlaneMachineCount: ptr.To[int64](1),
 					WorkerMachineCount:       ptr.To[int64](3),
 					ClusterctlVariables: map[string]string{
 						"GCP_SUBNET_NAME": "capg-test-subnet",
 						"GCP_SUBNET_CIDR": "172.20.0.0/16",
 					},
+				},
+				WaitForClusterIntervals:      e2eConfig.GetIntervals(specName, "wait-cluster"),
+				WaitForControlPlaneIntervals: e2eConfig.GetIntervals(specName, "wait-control-plane"),
+				WaitForMachinePools:          e2eConfig.GetIntervals(specName, "wait-worker-machine-pools"),
+			}, result)
+		})
+	})
+
+	Context("Creating a GKE cluster with autopilot from a cluster class", func() {
+		It("Should create a cluster class and a cluster from it", func() {
+			By("Initializes a managed control plane and managed cluster")
+
+			ApplyManagedClusterTemplateAndWait(ctx, ApplyManagedClusterTemplateAndWaitInput{
+				ClusterProxy: bootstrapClusterProxy,
+				ConfigCluster: clusterctl.ConfigClusterInput{
+					LogFolder:                clusterctlLogFolder,
+					ClusterctlConfigPath:     clusterctlConfigPath,
+					KubeconfigPath:           bootstrapClusterProxy.GetKubeconfigPath(),
+					InfrastructureProvider:   clusterctl.DefaultInfrastructureProvider,
+					Flavor:                   "ci-gke-autopilot-topology",
+					Namespace:                namespace.Name,
+					ClusterName:              clusterName,
+					KubernetesVersion:        e2eConfig.MustGetVariable(KubernetesVersion),
+					ControlPlaneMachineCount: ptr.To[int64](1),
+					WorkerMachineCount:       ptr.To[int64](0),
 				},
 				WaitForClusterIntervals:      e2eConfig.GetIntervals(specName, "wait-cluster"),
 				WaitForControlPlaneIntervals: e2eConfig.GetIntervals(specName, "wait-control-plane"),

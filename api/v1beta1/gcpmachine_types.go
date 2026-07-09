@@ -135,16 +135,11 @@ const (
 	// ConfidentialComputePolicyDisabled disables confidential compute for the GCP machine.
 	ConfidentialComputePolicyDisabled ConfidentialComputePolicy = "Disabled"
 	// ConfidentialComputePolicySEV sets AMD SEV as the VM instance's confidential computing technology of choice.
-	ConfidentialComputePolicySEV ConfidentialComputePolicy = "AMDEncrytedVirtualization"
+	ConfidentialComputePolicySEV ConfidentialComputePolicy = "AMDEncryptedVirtualization"
 	// ConfidentialComputePolicySEVSNP sets AMD SEV-SNP as the VM instance's confidential computing technology of choice.
-	ConfidentialComputePolicySEVSNP ConfidentialComputePolicy = "AMDEncrytedVirtualizationNestedPaging"
-)
-
-// Confidential VM Technology support depends on the configured machine types.
-// reference: https://cloud.google.com/compute/confidential-vm/docs/os-and-machine-type#machine-type
-var (
-	confidentialMachineSeriesSupportingSev    = []string{"n2d", "c2d", "c3d"}
-	confidentialMachineSeriesSupportingSevsnp = []string{"n2d"}
+	ConfidentialComputePolicySEVSNP ConfidentialComputePolicy = "AMDEncryptedVirtualizationNestedPaging"
+	// ConfidentialComputePolicyTDX sets Intel TDX as the VM instance's confidential computing technology of choice.
+	ConfidentialComputePolicyTDX ConfidentialComputePolicy = "IntelTrustedDomainExtensions"
 )
 
 // HostMaintenancePolicy represents the desired behavior ase of a host maintenance event.
@@ -233,6 +228,23 @@ const (
 	ProvisioningModelSpot ProvisioningModel = "Spot"
 )
 
+// AliasIPRange is an alias IP range attached to an instance's network interface.
+type AliasIPRange struct {
+	// IPCidrRange is the IP alias ranges to allocate for this interface. This IP
+	// CIDR range must belong to the specified subnetwork and cannot contain IP
+	// addresses reserved by system or used by other network interfaces. This range
+	// may be a single IP address (such as 10.2.3.4), a netmask (such as /24) or a
+	// CIDR-formatted string (such as 10.1.2.0/24).
+	// +kubebuilder:validation:Pattern=`^((([0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])/([0-9]|[12][0-9]|3[0-2])|(([0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])|(/([0-9]|[12][0-9]|3[0-2])))$`
+	// +required
+	IPCidrRange string `json:"ipCidrRange"`
+	// SubnetworkRangeName is the name of a subnetwork secondary IP range from which
+	// to allocate an IP alias range. If not specified, the primary range of the
+	// subnetwork is used.
+	// +optional
+	SubnetworkRangeName string `json:"subnetworkRangeName,omitempty"`
+}
+
 // GCPMachineSpec defines the desired state of GCPMachine.
 type GCPMachineSpec struct {
 	// InstanceType is the type of instance to create. Example: n1.standard-2
@@ -242,6 +254,10 @@ type GCPMachineSpec struct {
 	// the first subnetwork retrieved from the Cluster Region and Network is picked.
 	// +optional
 	Subnet *string `json:"subnet,omitempty"`
+
+	// AliasIPRanges let you assign ranges of internal IP addresses as aliases to a VM's network interfaces.
+	// +optional
+	AliasIPRanges []AliasIPRange `json:"aliasIPRanges,omitempty"`
 
 	// ProviderID is the unique identifier as specified by the cloud provider.
 	// +optional
@@ -347,15 +363,35 @@ type GCPMachineSpec struct {
 	// If Enabled, confidential computing will be configured and AMD Secure Encrypted Virtualization will be configured by default. That is subject to change over time. If using AMD Secure Encrypted Virtualization is vital, use AMDEncryptedVirtualization explicitly instead.
 	// If AMDEncryptedVirtualization, it will configure AMD Secure Encrypted Virtualization (AMD SEV) as the confidential computing technology.
 	// If AMDEncryptedVirtualizationNestedPaging, it will configure AMD Secure Encrypted Virtualization Secure Nested Paging (AMD SEV-SNP) as the confidential computing technology.
+	// If IntelTrustedDomainExtensions, it will configure Intel TDX as the confidential computing technology.
 	// If enabled (any value other than Disabled) OnHostMaintenance is required to be set to "Terminate".
 	// If omitted, the platform chooses a default, which is subject to change over time, currently that default is false.
-	// +kubebuilder:validation:Enum=Enabled;Disabled;AMDEncrytedVirtualization;AMDEncrytedVirtualizationNestedPaging
+	// +kubebuilder:validation:Enum=Enabled;Disabled;AMDEncryptedVirtualization;AMDEncryptedVirtualizationNestedPaging;IntelTrustedDomainExtensions
 	// +optional
 	ConfidentialCompute *ConfidentialComputePolicy `json:"confidentialCompute,omitempty"`
 
 	// RootDiskEncryptionKey defines the KMS key to be used to encrypt the root disk.
 	// +optional
 	RootDiskEncryptionKey *CustomerEncryptionKey `json:"rootDiskEncryptionKey,omitempty"`
+
+	// GuestAccelerators is a list of the type and count of accelerator cards
+	// attached to the instance.
+	// +optional
+	GuestAccelerators []Accelerator `json:"guestAccelerators,omitempty"`
+}
+
+// Accelerator is a specification of the type and number of accelerator
+// cards attached to the instance.
+type Accelerator struct {
+	// Count is the number of the guest accelerator cards exposed to this
+	// instance.
+	Count int64 `json:"count,omitempty"`
+	// Type is the full or partial URL of the accelerator type resource to
+	// attach to this instance. For example:
+	// projects/my-project/zones/us-central1-c/acceleratorTypes/nvidia-tesla-p100
+	// If you are creating an instance template, specify only the accelerator name.
+	// See GPUs on Compute Engine for a full list of accelerator types.
+	Type string `json:"type,omitempty"`
 }
 
 // MetadataItem defines a single piece of metadata associated with an instance.

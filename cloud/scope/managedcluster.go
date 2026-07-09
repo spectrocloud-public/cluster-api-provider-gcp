@@ -19,7 +19,6 @@ package scope
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/pkg/errors"
 	"google.golang.org/api/compute/v1"
@@ -27,7 +26,8 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-gcp/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-gcp/cloud"
 	infrav1exp "sigs.k8s.io/cluster-api-provider-gcp/exp/api/v1beta1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -51,13 +51,13 @@ func NewManagedClusterScope(ctx context.Context, params ManagedClusterScopeParam
 		return nil, errors.New("failed to generate new scope from nil GCPManagedCluster")
 	}
 
-	if params.GCPServices.Compute == nil {
+	if params.Compute == nil {
 		computeSvc, err := newComputeService(ctx, params.GCPManagedCluster.Spec.CredentialsRef, params.Client, params.GCPManagedCluster.Spec.ServiceEndpoints)
 		if err != nil {
 			return nil, errors.Errorf("failed to create gcp compute client: %v", err)
 		}
 
-		params.GCPServices.Compute = computeSvc
+		params.Compute = computeSvc
 	}
 
 	helper, err := patch.NewHelper(params.GCPManagedCluster, params.Client)
@@ -129,6 +129,13 @@ func (s *ManagedClusterScope) NetworkProject() string {
 	return ptr.Deref(s.GCPManagedCluster.Spec.Network.HostProject, s.Project())
 }
 
+// SkipFirewallRulesManagement returns whether the spec indicates that firewall rules
+// should be created or not. Firewall rules will not be created when the cluster
+// contains a shared VPC network.
+func (s *ManagedClusterScope) SkipFirewallRulesManagement() bool {
+	return s.IsSharedVpc()
+}
+
 // IsSharedVpc returns true If sharedVPC used else , returns false.
 func (s *ManagedClusterScope) IsSharedVpc() bool {
 	return s.NetworkProject() != s.Project()
@@ -165,14 +172,23 @@ func (s *ManagedClusterScope) ResourceManagerTags() infrav1.ResourceManagerTags 
 
 // ControlPlaneEndpoint returns the cluster control-plane endpoint.
 func (s *ManagedClusterScope) ControlPlaneEndpoint() clusterv1.APIEndpoint {
-	endpoint := s.GCPManagedCluster.Spec.ControlPlaneEndpoint
-	endpoint.Port = ptr.Deref(s.Cluster.Spec.ClusterNetwork.APIServerPort, 443)
+	endpoint := clusterv1.APIEndpoint{
+		Host: s.GCPManagedCluster.Spec.ControlPlaneEndpoint.Host,
+		Port: 443,
+	}
+	if s.Cluster.Spec.ClusterNetwork.APIServerPort != 0 {
+		endpoint.Port = s.Cluster.Spec.ClusterNetwork.APIServerPort
+	}
 	return endpoint
 }
 
 // FailureDomains returns the cluster failure domains.
-func (s *ManagedClusterScope) FailureDomains() clusterv1.FailureDomains {
-	return s.GCPManagedCluster.Status.FailureDomains
+func (s *ManagedClusterScope) FailureDomains() []string {
+	failureDomains := make([]string, 0, len(s.GCPManagedCluster.Status.FailureDomains))
+	for failureDomainName := range s.GCPManagedCluster.Status.FailureDomains {
+		failureDomains = append(failureDomains, failureDomainName)
+	}
+	return failureDomains
 }
 
 // ANCHOR_END: ClusterGetter
@@ -185,13 +201,16 @@ func (s *ManagedClusterScope) SetReady() {
 }
 
 // SetFailureDomains sets cluster failure domains.
-func (s *ManagedClusterScope) SetFailureDomains(fd clusterv1.FailureDomains) {
+func (s *ManagedClusterScope) SetFailureDomains(fd clusterv1beta1.FailureDomains) {
 	s.GCPManagedCluster.Status.FailureDomains = fd
 }
 
 // SetControlPlaneEndpoint sets cluster control-plane endpoint.
 func (s *ManagedClusterScope) SetControlPlaneEndpoint(endpoint clusterv1.APIEndpoint) {
-	s.GCPManagedCluster.Spec.ControlPlaneEndpoint = endpoint
+	s.GCPManagedCluster.Spec.ControlPlaneEndpoint = clusterv1beta1.APIEndpoint{
+		Host: endpoint.Host,
+		Port: endpoint.Port,
+	}
 }
 
 // ANCHOR_END: ClusterSetter
@@ -221,6 +240,7 @@ func (s *ManagedClusterScope) NatRouterSpec() *compute.Router {
 				Name:                          fmt.Sprintf("%s-%s", networkSpec.Name, "nat"),
 				NatIpAllocateOption:           "AUTO_ONLY",
 				SourceSubnetworkIpRangesToNat: "ALL_SUBNETWORKS_ALL_IP_RANGES",
+				MinPortsPerVm:                 s.GCPManagedCluster.Spec.Network.MinPortsPerVM,
 			},
 		},
 	}
@@ -230,9 +250,9 @@ func (s *ManagedClusterScope) NatRouterSpec() *compute.Router {
 
 // SubnetSpecs returns google compute subnets spec.
 func (s *ManagedClusterScope) SubnetSpecs() []*compute.Subnetwork {
-	subnets := []*compute.Subnetwork{}
+	subnets := make([]*compute.Subnetwork, 0, len(s.GCPManagedCluster.Spec.Network.Subnets))
 	for _, subnetwork := range s.GCPManagedCluster.Spec.Network.Subnets {
-		secondaryIPRanges := []*compute.SubnetworkSecondaryRange{}
+		secondaryIPRanges := make([]*compute.SubnetworkSecondaryRange, 0, len(subnetwork.SecondaryCidrBlocks))
 		for rangeName, secondaryCidrBlock := range subnetwork.SecondaryCidrBlocks {
 			secondaryIPRanges = append(secondaryIPRanges, &compute.SubnetworkSecondaryRange{RangeName: rangeName, IpCidrRange: secondaryCidrBlock})
 		}
@@ -258,48 +278,12 @@ func (s *ManagedClusterScope) SubnetSpecs() []*compute.Subnetwork {
 
 // FirewallRulesSpec returns google compute firewall spec.
 func (s *ManagedClusterScope) FirewallRulesSpec() []*compute.Firewall {
-	firewallRules := []*compute.Firewall{
-		{
-			Name:    fmt.Sprintf("allow-%s-healthchecks", s.Name()),
-			Network: s.NetworkLink(),
-			Allowed: []*compute.FirewallAllowed{
-				{
-					IPProtocol: "TCP",
-					Ports: []string{
-						strconv.FormatInt(6443, 10),
-					},
-				},
-			},
-			Direction: "INGRESS",
-			SourceRanges: []string{
-				"35.191.0.0/16",
-				"130.211.0.0/22",
-			},
-			TargetTags: []string{
-				s.Name() + "-control-plane",
-			},
-		},
-		{
-			Name:    fmt.Sprintf("allow-%s-cluster", s.Name()),
-			Network: s.NetworkLink(),
-			Allowed: []*compute.FirewallAllowed{
-				{
-					IPProtocol: "all",
-				},
-			},
-			Direction: "INGRESS",
-			SourceTags: []string{
-				s.Name() + "-control-plane",
-				s.Name() + "-node",
-			},
-			TargetTags: []string{
-				s.Name() + "-control-plane",
-				s.Name() + "-node",
-			},
-		},
-	}
-
-	return firewallRules
+	return createFirewallRules(
+		s.Name(),
+		s.NetworkLink(),
+		s.GCPManagedCluster.Spec.Network.Firewall.DefaultRulesManagement,
+		s.GCPManagedCluster.Spec.Network.Firewall.FirewallRules,
+	)
 }
 
 // ANCHOR_END: ClusterFirewallSpec

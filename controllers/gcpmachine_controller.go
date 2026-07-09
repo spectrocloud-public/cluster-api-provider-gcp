@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-gcp/cloud/scope"
 	"sigs.k8s.io/cluster-api-provider-gcp/cloud/services/compute/instances"
 	"sigs.k8s.io/cluster-api-provider-gcp/util/reconciler"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/predicates"
@@ -82,7 +82,7 @@ func (r *GCPMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 	if err := c.Watch(
 		source.Kind[client.Object](mgr.GetCache(), &clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToObjectFunc),
-			predicates.ClusterPausedTransitionsOrInfrastructureReady(mgr.GetScheme(), log),
+			predicates.ClusterPausedTransitionsOrInfrastructureProvisioned(mgr.GetScheme(), log),
 		)); err != nil {
 		return errors.Wrap(err, "failed adding a watch for ready clusters")
 	}
@@ -173,7 +173,7 @@ func (r *GCPMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		Namespace: gcpMachine.Namespace,
 		Name:      cluster.Spec.InfrastructureRef.Name,
 	}
-	if err := r.Client.Get(ctx, gcpClusterKey, gcpCluster); err != nil {
+	if err := r.Get(ctx, gcpClusterKey, gcpCluster); err != nil {
 		log.Info("GCPCluster is not available yet")
 		return ctrl.Result{}, nil
 	}
@@ -207,7 +207,7 @@ func (r *GCPMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}()
 
 	// Handle deleted machines
-	if !gcpMachine.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !gcpMachine.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.reconcileDelete(ctx, machineScope)
 	}
 
@@ -245,7 +245,7 @@ func (r *GCPMachineReconciler) reconcile(ctx context.Context, machineScope *scop
 	default:
 		machineScope.SetFailureReason("UpdateError")
 		machineScope.SetFailureMessage(errors.Errorf("GCPMachine instance state %s is unexpected", instanceState))
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: reconciler.DefaultRetryTime}, nil
 	}
 }
 
