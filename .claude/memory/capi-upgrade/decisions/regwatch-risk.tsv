@@ -1,0 +1,13 @@
+# ── INPUT (Gate-1, you edit) — Regression-Watch risk: <sha> <L|M|H> [note]. unset=REVIEW (blocks execute); High=sign-off. '#' = comment. See ../README.md ──
+# Regression-Watch risk ledger (Patch B durability) — "<sha> <L|M|H> [note]".
+# Reviewer-assigned risk survives re-plans (engine reads this instead of resetting to REVIEW).
+# UNSET/REVIEW and High BLOCK execute via --check-regwatch. Set by capi-plan-reviewer 2026-07-07.
+#
+# sha        risk  note
+e97ddf43     L     Spectro CICD — conflict only on Dockerfile/Makefile (build-var churn). No CAPI/GCP API surface; resolver 3-way merge is mechanical.
+eb9fc94c     L     Self-hosted runner — conflict only on .github/workflows/spectro-release.yaml. CI yaml, mechanical; downstream of e97ddf43.
+0c6fb0e0     M     Route-delete fix in cloud/services/compute/networks (F4 hotspot). Target restructured networks+added native subnets pkg; no CAPI-type crossing but resolver must confirm the fix still applies and is not already fixed upstream.
+38428b73     M     GCPMachineTemplate ref fix. Fork file api/v1beta1/gcpmachinetemplate_webhook.go; target RELOCATED webhook code to webhooks/. Structural relocation — re-apply the ref fix in the new location; confirm target has not already corrected the reference.
+e41bf6ae     L     F4 Instance Size / NodePoolVersion. CONTRACT-CROSSING: source uses MachinePool from cluster-api/exp/api/v1beta1 with Spec.Template.Spec.Version as *string (nil-checked, TrimPrefix). Target moved MachinePool to cluster-api/api/core/v1beta2 with Version as a non-pointer string ("" check). This is a semantic rewrite (pointer->value + type-namespace move), not a mechanical resolve — high behavior-loss risk. Human dropped as SKIP at PR #282 Gate-1 — accepted behavior change; risk downgraded to L because commit is not being re-applied.
+# ── reviewer-applied 2026-07-10 ──
+26a36662     L     reviewer-applied: New fork commit (LB health-check thresholds), engine auto-SKIP as patch-equivalent in v1.12.0. VERIFIED: v1.12.0 cloud/scope/cluster.go carries HealthyThreshold=1/UnhealthyThreshold=6 matching fork. No re-apply needed; low risk. Confirm via drift-diff at CVE gate.
