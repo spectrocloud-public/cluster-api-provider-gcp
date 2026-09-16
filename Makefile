@@ -145,7 +145,7 @@ ifeq ($(FIPS_ENABLE),yes)
   RELEASE_LOC := release-fips
 endif
 SPECTRO_VERSION ?= 4.0.0-dev
-TAG ?= v1.8.1-spectro-${SPECTRO_VERSION}
+TAG ?= v1.12.0-spectro-${SPECTRO_VERSION}
 
 REGISTRY ?= gcr.io/spectro-dev-public/$(USER)/${RELEASE_LOC}
 ARCH ?= amd64
