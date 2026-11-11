@@ -1,6 +1,6 @@
 module sigs.k8s.io/cluster-api-provider-gcp
 
-go 1.26.10
+go 1.26.11
 
 replace (
 	// cel-go should match the version imported by CAPI.
